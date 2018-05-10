@@ -2,25 +2,73 @@
 
 Support for OAuth 2 and OpenId Connect (OIDC) in Angular.
 
+![OIDC Certified Logo](https://raw.githubusercontent.com/manfredsteyer/angular-oauth2-oidc/master/oidc.png)
+
 ## Credits
 
-- generator-angular2-library: https://github.com/jvandemo/generator-angular2-library
+- [generator-angular2-library](https://github.com/jvandemo/generator-angular2-library) for scaffolding an Angular library
+- [jsrasign](https://kjur.github.io/jsrsasign/) for validating token signature and for hashing
+- [Identity Server](https://github.com/identityserver) (used for testing with an .NET/.NET Core Backend)
+- [Keycloak (Redhat)](http://www.keycloak.org/) for testing with Java
+
+## Resources
+
+- Sources and Sample:
+https://github.com/manfredsteyer/angular-oauth2-oidc
+
+- Source Code Documentation
+https://manfredsteyer.github.io/angular-oauth2-oidc/angular-oauth2-oidc/docs/
+
+## Tutorials
+
+* [Angular Authentication with OpenID Connect and Okta in 20 Minutes](https://developer.okta.com/blog/2017/04/17/angular-authentication-with-oidc)
+* [Add Authentication to Your Angular PWA](https://developer.okta.com/blog/2017/06/13/add-authentication-angular-pwa)
+* [Build an Ionic App with User Authentication](https://developer.okta.com/blog/2017/08/22/build-an-ionic-app-with-user-authentication)
 
 ## Tested Environment
 
-Successfully tested with the Angular 2.x and it's Router, PathLocationStrategy and CommonJS-Bundling via webpack.
+Successfully tested with Angular 4.3+, Angular 5 and its Router, PathLocationStrategy as well as HashLocationStrategy and CommonJS-Bundling via webpack. At server side we've used IdentityServer (.NET/ .NET Core) and Redhat's Keycloak (Java).
 
-## Features
+## New Features in Version 3.1
 
+See [Release Notes](https://github.com/manfredsteyer/angular-oauth2-oidc/releases/tag/3.1)
+
+## New Features in Version 3.0
+
+See [Release Notes](https://github.com/manfredsteyer/angular-oauth2-oidc/releases/tag/3.0.1)
+
+## New Features in Version 2.1
+- New Config API (the original one is still supported)
+- New convenience methods in OAuthService to streamline default tasks:
+    - ``setupAutomaticSilentRefresh()``
+    - ``loadDiscoveryDocumentAndTryLogin()``
+- Single Sign out through Session Status Change Notification according to the OpenID Connect Session Management specs. This means, you can be notified when the user logs out using at the login provider.
+- Possibility to define the ValidationHandler, the Config as well as the OAuthStorage via DI
+- Better structured documentation
+
+## New Features in Version 2
+- Token Refresh for Implicit Flow by implementing "silent refresh"
+- Validating the signature of the received id_token
+- Providing Events via the observable ``events``.
+- The event ``token_expires`` can be used together with a silent refresh to automatically refresh a token when/ before it expires (see also property ``timeoutFactor``).
+
+## Additional Features 
 - Logging in via OAuth2 and OpenId Connect (OIDC) Implicit Flow (where user is redirected to Identity Provider)
 - "Logging in" via Password Flow (where user enters his/her password into the client)
-- Using OIDC is optional
-- Token Refresh for Password Flow (Implicit Flow doesn't allow for refresh tokens by design)
+- Token Refresh for Password Flow by using a Refresh Token
+- Automatically refreshing a token when/ some time before it expires
 - Querying Userinfo Endpoint
 - Querying Discovery Document to ease configuration
-- Validating claims of the id_token regarding the specs (aud, iss, nbf, exp, at_hash)
-- Hook for validating the signature of the received id_token
+- Validating claims of the id_token regarding the specs
+- Hook for further custom validations
 - Single-Sign-Out by redirecting to the auth-server's logout-endpoint
+
+## Breaking Changes in Version 2
+- The property ``oidc`` defaults to ``true``.
+- If you are just using oauth2, you have to set ``oidc`` to ``false``. Otherwise, the validation of the user profile will fail!
+- By default, ``sessionStorage`` is used. To use ``localStorage`` call method setStorage
+- Demands using https as OIDC and OAuth2 relay on it. This rule can be relaxed using the property ``requireHttps``, e. g. for local testing.
+- Demands that every url provided by the discovery document starts with the issuer's url. This can be relaxed by using the property ``strictDiscoveryDocumentValidation``.
 
 ## Sample-Auth-Server
 
@@ -28,14 +76,24 @@ You can use the OIDC-Sample-Server mentioned in the samples for Testing. It assu
 
 Username/Password: max/geheim
 
-## Resources
+*clientIds:* 
+- spa-demo (implicit flow)
+- demo-resource-owner (resource owner password flow)
 
-- Sources of this lib: https://github.com/manfredsteyer/angular-oauth2-oidc
-- Sample Project: https://github.com/manfredsteyer/angular2-oauth-oidc-demo
+*redirectUris:*
+- localhost:[8080-8089|4200-4202]
+- localhost:[8080-8089|4200-4202]/index.html
+- localhost:[8080-8089|4200-4202]/silent-refresh.html
 
-## Setup Provider for OAuthService
+## Installing
 
 ```
+npm i angular-oauth2-oidc --save
+```
+
+## Importing the NgModule
+
+```TypeScript
 import { OAuthModule } from 'angular-oauth2-oidc';
 [...]
 
@@ -59,132 +117,97 @@ export class AppModule {
 
 ``` 
 
-## Using Implicit Flow
+## Configuring for Implicit Flow
 
-This section shows how to use the implicit flow, which is redirecting the user to the auth-server for the login.
+This section shows how to implement login leveraging implicit flow. This is the OAuth2/OIDC flow best suitable for
+Single Page Application. It sends the user to the Identity Provider's login page. After logging in, the SPA gets tokens.
+This also allows for single sign on as well as single sign off.
 
-### Configure Library for Implicit Flow (using discovery document)
+To configure the library the following sample uses the new configuration API introduced with Version 2.1.
+Hence, The original API is still supported.
 
-To configure the library you just have to set some properties on startup. For this, the following sample uses the constructor of the AppComponent which is called before routing kicks in.
+```TypeScript
+import { AuthConfig } from 'angular-oauth2-oidc';
 
-```
-@Component({ ... })
-export class AppComponent {
+export const authConfig: AuthConfig = {
 
-  constructor(private oauthService: OAuthService) {
-        
-        // URL of the SPA to redirect the user to after login
-        this.oauthService.redirectUri = window.location.origin + "/index.html";
+  // Url of the Identity Provider
+  issuer: 'https://steyer-identity-server.azurewebsites.net/identity',
 
-        // The SPA's id. The SPA is registerd with this id at the auth-server
-        this.oauthService.clientId = "spa-demo";
+  // URL of the SPA to redirect the user to after login
+  redirectUri: window.location.origin + '/index.html',
 
-        // set the scope for the permissions the client should request
-        // The first three are defined by OIDC. The 4th is a usecase-specific one
-        this.oauthService.scope = "openid profile email voucher";
+  // The SPA's id. The SPA is registerd with this id at the auth-server
+  clientId: 'spa-demo',
 
-        // set to true, to receive also an id_token via OpenId Connect (OIDC) in addition to the
-        // OAuth2-based access_token
-        this.oauthService.oidc = true;
-
-        // Use setStorage to use sessionStorage or another implementation of the TS-type Storage
-        // instead of localStorage
-        this.oauthService.setStorage(sessionStorage);
-
-        // The name of the auth-server that has to be mentioned within the token
-        this.oauthService.issuer = "https://steyer-identity-server.azurewebsites.net/identity";
-        
-        // Load Discovery Document and then try to login the user
-        this.oauthService.loadDiscoveryDocument().then(() => {
-
-            // This method just tries to parse the token(s) within the url when
-            // the auth-server redirects the user back to the web-app
-            // It dosn't send the user the the login page
-            this.oauthService.tryLogin({});      
-
-        });
-
-  }
-
+  // set the scope for the permissions the client should request
+  // The first three are defined by OIDC. The 4th is a usecase-specific one
+  scope: 'openid profile email voucher',
 }
 ```
 
-### Configure Library for Implicit Flow (without discovery document)
+Configure the OAuthService with this config object when the application starts up:
 
-When you don't have a discovery document, you have to configure more properties manually:
-
-```
-@Component({ ... })
-export class AppComponent {
-
-  constructor(private oauthService: OAuthService) {
-        
-        // Login-Url
-        this.oauthService.loginUrl = "https://steyer-identity-server.azurewebsites.net/identity/connect/authorize"; //Id-Provider?
-
-        // URL of the SPA to redirect the user to after login
-        this.oauthService.redirectUri = window.location.origin + "/index.html";
-
-        // The SPA's id. Register SPA with this id at the auth-server
-        this.oauthService.clientId = "spa-demo";
-
-        // set the scope for the permissions the client should request
-        this.oauthService.scope = "openid profile email voucher";
-
-        // set to true, to receive also an id_token via OpenId Connect (OIDC) in addition to the
-        // OAuth2-based access_token
-        this.oauthService.oidc = true;
-
-        // Use setStorage to use sessionStorage or another implementation of the TS-type Storage
-        // instead of localStorage
-        this.oauthService.setStorage(sessionStorage);
-
-        // To also enable single-sign-out set the url for your auth-server's logout-endpoint here
-        this.oauthService.logoutUrl = "https://steyer-identity-server.azurewebsites.net/identity/connect/endsession?id_token={{id_token}}";
-
-        // This method just tries to parse the token(s) within the url when
-        // the auth-server redirects the user back to the web-app
-        // It dosn't send the user the the login page
-        this.oauthService.tryLogin({});      
-
-
-  }
-
-}
-```
-
-### Home-Component (for login)
-
-```
+```TypeScript
+import { OAuthService } from 'angular-oauth2-oidc';
+import { JwksValidationHandler } from 'angular-oauth2-oidc';
+import { authConfig } from './auth.config';
 import { Component } from '@angular/core';
-import { OAuthService } from 'angular2-oauth2/oauth-service';
 
 @Component({
-    templateUrl: "app/home.html" 
+    selector: 'flight-app',
+    templateUrl: './app.component.html'
 })
-export class HomeComponent {
-    
-    constructor(private oAuthService: OAuthService) {
+export class AppComponent {
+
+    constructor(private oauthService: OAuthService) {
+      this.configureWithNewConfigApi();
     }
-    
-    public login() {
-        this.oAuthService.initImplicitFlow();
+
+    private configureWithNewConfigApi() {
+      this.oauthService.configure(authConfig);
+      this.oauthService.tokenValidationHandler = new JwksValidationHandler();
+      this.oauthService.loadDiscoveryDocumentAndTryLogin();
     }
-    
-    public logoff() {
-        this.oAuthService.logOut();
-    }
-    
-    public get name() {
-        let claims = this.oAuthService.getIdentityClaims();
-        if (!claims) return null;
-        return claims.given_name; 
-    }
-    
 }
 ```
 
+### Implementing a Login Form
+
+After you've configured the library, you just have to call ``initImplicitFlow`` to login using OAuth2/ OIDC.
+
+```TypeScript
+import { Component } from '@angular/core';
+import { OAuthService } from 'angular-oauth2-oidc';
+
+@Component({
+    templateUrl: "app/home.html"
+})
+export class HomeComponent {
+
+    constructor(private oauthService: OAuthService) {
+    }
+
+    public login() {
+        this.oauthService.initImplicitFlow();
+    }
+
+    public logoff() {
+        this.oauthService.logOut();
+    }
+
+    public get name() {
+        let claims = this.oauthService.getIdentityClaims();
+        if (!claims) return null;
+        return claims.given_name;
+    }
+
+}
 ```
+
+The following snippet contains the template for the login page:
+
+```HTML
 <h1 *ngIf="!name">
     Hallo
 </h1>
@@ -204,185 +227,57 @@ export class HomeComponent {
 </div>
 ```
 
-### Validate id_token
+### Skipping the Login Form
 
-In cases where security relies on the id_token (e. g. in hybrid apps that use it to provide access to local resources)
-you could use the callback ``validationHandler`` to define the logic to validate the token's signature. 
-The following sample uses the validation-endpoint of [IdentityServer3](https://github.com/IdentityServer/IdentityServer3) for this:
+If you don't want to display a login form that tells the user that they are redirected to the identity server, you can use the convenince function ``this.oauthService.loadDiscoveryDocumentAndLogin();`` instead of ``this.oauthService.loadDiscoveryDocumentAndTryLogin();`` when setting up the library. 
 
-```
-this.oauthService.tryLogin({
-    validationHandler: context => {
-        var search = new URLSearchParams();
-        search.set('token', context.idToken); 
-        search.set('client_id', oauthService.clientId);
-        return http.get(validationUrl, { search }).toPromise();
-    }
-});
-```
+This directly redirects the user to the identity server if there are no valid tokens. 
 
-### Calling a Web API with OAuth-Token
+
+### Calling a Web API with an Access Token
 
 Pass this Header to the used method of the ``Http``-Service within an Instance of the class ``Headers``:
 
-```
+```TypeScript
 var headers = new Headers({
     "Authorization": "Bearer " + this.oauthService.getAccessToken()
 });
 ```
 
+If you are using the new ``HttpClient``, use the class ``HttpHeaders`` instead:
 
-### Callback after successful login
-
-There is a callback ``onTokenReceived``, that is called after a successful login. In this case, the lib received the access_token as
-well as the id_token, if it was requested. If there is an id_token, the lib validated it in view of it's claims 
-(aud, iss, nbf, exp, at_hash) and - if a ``validationHandler`` has been set up - with this ``validationHandler``, e. g. to validate
-the signature of the id_token.
-
-```
-this.oauthService.tryLogin({
-    onTokenReceived: context => {
-        //
-        // Output just for purpose of demonstration
-        // Don't try this at home ... ;-)
-        // 
-        console.debug("logged in");
-        console.debug(context);
-    },
-    validationHandler: context => {
-        var search = new URLSearchParams();
-        search.set('token', context.idToken); 
-        search.set('client_id', oauthService.clientId);
-        return http.get(validationUrl, { search}).toPromise();
-    }
+```TypeScript
+var headers = new HttpHeaders({
+    "Authorization": "Bearer " + this.oauthService.getAccessToken()
 });
 ```
 
-## Using Password-Flow
+Since 3.1 you can also automate this task by switching ``sendAccessToken`` on and by setting ``allowedUrls`` to an array with prefixes for the respective urls. Use lower case for the prefixes.
 
-This section shows how to use the password flow, which demands the user to directly enter his or her password into the client.
-
-### Configure Library for Password Flow (using discovery document)
-
-To configure the library you just have to set some properties on startup. For this, the following sample uses the constructor of the AppComponent which is called before routing kicks in.
-
-Please not, that this configuation is quite similar to the one for the implcit flow.
-
-```
-@Component({ ... })
-export class AppComponent {
-
-  constructor(private oauthService: OAuthService) {
-      
-        // The SPA's id. Register SPA with this id at the auth-server
-        this.oauthService.clientId = "demo-resource-owner";
-
-        // set the scope for the permissions the client should request
-        // The auth-server used here only returns a refresh token (see below), when the scope offline_access is requested
-        this.oauthService.scope = "openid profile email voucher offline_access";
-
-        // Use setStorage to use sessionStorage or another implementation of the TS-type Storage
-        // instead of localStorage
-        this.oauthService.setStorage(sessionStorage);
-
-        // Set a dummy secret
-        // Please note that the auth-server used here demand the client to transmit a client secret, although
-        // the standard explicitly cites that the password flow can also be used without it. Using a client secret
-        // does not make sense for a SPA that runs in the browser. That's why the property is called dummyClientSecret
-        // Using such a dummy secreat is as safe as using no secret.
-        this.oauthService.dummyClientSecret = "geheim";
-
-        // Load Discovery Document and then try to login the user
-        let url = 'https://steyer-identity-server.azurewebsites.net/identity/.well-known/openid-configuration';
-        this.oauthService.loadDiscoveryDocument(url).then(() => {
-            // Do what ever you want here
-        });
-
-  }
-
-}
-```
-
-### Configure Library for Password Flow (without discovery document)
-
-In cases where you don't have an OIDC based discovery document you have to configure some more properties manually:
-
-```
-@Component({ ... })
-export class AppComponent {
-
-  constructor(private oauthService: OAuthService) {
-      
-        // Login-Url
-        //this.oauthService.loginUrl = "https://steyer-identity-server.azurewebsites.net/identity/connect/authorize"; //Id-Provider?
-
-        // Url with user info endpoint
-        // This endpont is described by OIDC and provides data about the loggin user
-        // This sample uses it, because we don't get an id_token when we use the password flow
-        // If you don't want this lib to fetch data about the user (e. g. id, name, email) you can skip this line
-        this.oauthService.userinfoEndpoint = "https://steyer-identity-server.azurewebsites.net/identity/connect/userinfo";
-
-        // The SPA's id. Register SPA with this id at the auth-server
-        this.oauthService.clientId = "demo-resource-owner";
-
-        // set the scope for the permissions the client should request
-        // The auth-server used here only returns a refresh token (see below), when the scope offline_access is requested
-        this.oauthService.scope = "openid profile email voucher offline_access";
-
-        // Use setStorage to use sessionStorage or another implementation of the TS-type Storage
-        // instead of localStorage
-        this.oauthService.setStorage(sessionStorage);
-
-        // Set a dummy secret
-        // Please note that the auth-server used here demand the client to transmit a client secret, although
-        // the standard explicitly cites that the password flow can also be used without it. Using a client secret
-        // does not make sense for a SPA that runs in the browser. That's why the property is called dummyClientSecret
-        // Using such a dummy secreat is as safe as using no secret.
-        this.oauthService.dummyClientSecret = "geheim";
-
-        // Load Discovery Document and then try to login the user
-        let url = 'https://steyer-identity-server.azurewebsites.net/identity/.well-known/openid-configuration';
-        this.oauthService.loadDiscoveryDocument(url).then(() => {
-            // Do what ever you want here
-        });
-
-  }
-
-}
-```
-
-## Fetching an Access Token by providing the current user's credentials
-
-```
-this.oauthService.fetchTokenUsingPasswordFlow('max', 'geheim').then((resp) => {
-          
-      // Loading data about the user
-      return this.oauthService.loadUserProfile();
-
-}).then(() => {
-
-      // Using the loaded user data
-      let claims = this.oAuthService.getIdentityClaims();
-      if (claims) console.debug('given_name', claims.given_name); 
-  
+```TypeScript
+OAuthModule.forRoot({
+    resourceServer: {
+        allowedUrls: ['http://www.angular.at/api'],
+        sendAccessToken: true
+    }
 })
 ```
 
-There is also a short form for fetching the token and loading the user profile:
+## Routing
 
-```
-this.oauthService.fetchTokenUsingPasswordFlowAndLoadUserProfile('max', 'geheim').then(() => {
-      let claims = this.oAuthService.getIdentityClaims();
-      if (claims) console.debug('given_name', claims.given_name); 
-});      
-```
+If you use the ``PathLocationStrategy`` (which is on by default) and have a general catch-all-route (``path: '**'``) you should be fine. Otherwise look up the section ``Routing with the HashStrategy`` in the [documentation](https://manfredsteyer.github.io/angular-oauth2-oidc/angular-oauth2-oidc/docs/).
 
-## Refreshing the current Access Token
+## More Documentation
 
-Using the password flow you MIGHT get a refresh token (which isn't the case with the implicit flow by design!). You can use this token later to get a new access token, e. g. after it expired.
+See the [documentation](https://manfredsteyer.github.io/angular-oauth2-oidc/angular-oauth2-oidc/docs/) for more information about this library.
 
-```
-this.oauthService.refreshToken().then(() => {
-          console.debug('ok');
-})
-```
+
+
+
+
+
+
+
+
+
+
